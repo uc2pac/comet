@@ -1,0 +1,117 @@
+<div class="post-container">
+    <h1>Real-time data with long polling</h1>
+
+    <h2>Summary</h2>
+    <p>A lot of modern e-commerce features require real time collaboration. For example our customers want to solve their problems directly in place where the problem had happened, like support chat.</p>
+    <p>Also big enterprise solutions needs to be robust and scalable. That scalability gives us AWS ELB (Elastic Load Balancer), which beautifully scales our needs. It sits between user’s request and Amazon EC2 instances.</p>
+    <p>Unfortunately, due to implementation complications ELB doesn’t play well with Websockets.</p>
+
+    <h2>Stack</h2>
+    <ul>
+        <li><a href="https://angular.io/" target="_blank">Angular 2</a></li>
+        <li><a href="https://nodejs.org/en/" target="_blank">Node.js</a></li>
+    </ul>
+
+    <h2>Problem</h2>
+    <p>Main problem is that to be able to use WebSockets with ELB we need to use TCP instead of HTTP/S, because ELB doesn’t support HTTP/S with WebSockets. You will say, “that is grate. TCP is secure protocol and even HTTP is build on top of it!”. That is true, but some of enterprise customers for which security is number one priority, such as banks, will block TCP forwarding to non 80 or 443 ports. You will say “so what? We can use 80 or 443”. It turned out that those ports almost always are used by main application or some other services,
+    and for those customers ELB and WebSocket is not an option.</p>
+    <p>So, what can be done you will ask.</p>
+
+    <h2>Solution</h2>
+    <p>We can use old long-polling to simulate WebSocket behaviour. It will fix our problem with TCP and with port availability.</p>
+    <p>The solution we came with to one of our customers was simple and efficient.</p>
+    <p>How we did it?</p>
+    <p>Firstly, we created “PollService” which purpose was to instantiate user session, handle disconnection and poll server after each disconnection.</p>
+
+
+    <pre><code>
+    @Injectable()
+    export class CometService {{ '{' }}
+        private subscriptions = {{ '{}' }};
+        private observer;
+
+        private topic   : string;
+        private apiUrl  : string = 'http://localhost:3333/api/comet/';
+
+        constructor(private _http: Http, private _utils: UtilsService) {{ '{' }}
+            this.sessionId = this._utils.guid();
+        {{ '}' }}
+
+        public subscribe(topic: string): Observable&lt;any&gt; {{ '{' }}
+            this.topic = topic;
+
+            return Observable.create((observer) => {{ '{' }}
+                this.observer = observer;
+                this.connect();
+            {{ '}' }});
+        {{ '}' }}
+
+        public cancelSubscriptions(topic): void {{ '{' }}
+            if (topic in this.subscriptions) {{ '{' }}
+                this.subscriptions[topic].unsubscribe();
+                delete this.subscriptions[topic];
+            {{ '}' }}
+        {{ '}' }}
+
+        private connect() {{ '{' }}
+            this.cancelSubscriptions(this.topic);
+
+            this.subscriptions[this.topic] = this._http.post(this.apiUrl + this.topic, {{ '{' }}sessionId: this.sessionId{{ '}' }})
+                    .map((res: Response) => res.json())
+                    .subscribe(
+                        res => {{ '{' }}
+                            this.observer.next(res);
+                            this.reconnect();
+                        {{ '}' }},
+                        err => {{ '{' }}
+                            if (err.status === 303) {{ '{' }}
+                                this.reconnect();
+                            {{ '}' }}
+                        {{ '}' }}
+                    );
+        {{ '}' }}
+
+        private reconnect(): void {{ '{' }}
+            this.connect();
+        {{ '}' }}
+    {{ '}' }}
+    </code></pre>
+
+    <p>Now when we have our service we can use it like this:</p>
+
+    <br/>
+
+    <h4>chat.component.ts</h4>
+    <pre><code>
+    ngOnInit() {{ '{' }}
+        this.pollMessages();
+    {{ '}' }}
+
+    // Polling 'messages' endpoint using "_comet" service
+    pollMessages() {{ '{' }}
+        /**
+        * @params 
+        * topic   : string
+        * payload : object // optional
+        */
+        this._comet.subscribe('messages')
+            .subscribe(
+                message => this.messages.push(message),
+                error => console.log(error)
+            )
+    {{ '}' }}
+
+    ngOnDestroy() {{ '{' }}
+        this._comet.cancelSubscriptions('messages');
+    {{ '}' }}
+    </code></pre>
+
+
+    <p>You can even go farther and create a promise based implementation which you can resolve when you receive some data to handle async more elegantly.</p>
+    <p>Note, that we used PollService only for receiving push notifications from the backend. For sending data to the server we used regular http requests.</p>
+    <p>On the backend we used Async and Comment support of Java’s servlet 3.0. It gave us open connection which we held for 30 seconds. When client did connection we store his sessionId to users  map. After 30 seconds we close connection and our “reconnect“ handler on front-end reconnected us again. So, at any time we could push messages to all users for which we had sessionId in our users map.</p>
+    
+    <h2>Conclusion</h2>
+    <p>While WebSocket is great technology which gives us power of real time communication and is very efficient for game development, there are cases when you want to stick to the old school. Knowing and understanding how different protocols and transports work gave us solution that works for us and our clients.</p>
+
+</div>

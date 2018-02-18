@@ -1,0 +1,11 @@
+<div class="chat-window panel panel-default">
+    <div class="panel-body">
+        <h3>Your messages</h3>
+    </div>
+    <ul class="list-group">
+        <li class="list-group-item" *ngFor="let message of messages">
+            <span class="pull-right">{{message.created | date:'shortTime'}}</span>
+            {{message.text}}
+        </li>
+    </ul>
+</div>
